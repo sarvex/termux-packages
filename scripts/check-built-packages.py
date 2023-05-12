@@ -17,7 +17,7 @@ def check_manifest(arch, manifest):
         if line.isspace():
             package_name = current_package['Package']
             package_version = current_package['Version']
-            if not package_name in version_map:
+            if package_name not in version_map:
                 # Skip sub-package
                 continue
             latest_version = version_map[package_name]

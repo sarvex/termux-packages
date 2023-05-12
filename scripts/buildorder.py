@@ -28,7 +28,7 @@ def unique_everseen(iterable, key=None):
 
 def die(msg):
     "Exit the process with an error message."
-    sys.exit('ERROR: ' + msg)
+    sys.exit(f'ERROR: {msg}')
 
 def parse_build_file_dependencies_with_vars(path, vars):
     "Extract the dependencies specified in the given variables of a build.sh or *.subpackage.sh file."
@@ -74,9 +74,10 @@ def parse_build_file_excluded_arches(path):
                 arches_string = line.split('ARCHES=')[1]
                 for char in "\"'\n":
                     arches_string = arches_string.replace(char, '')
-                for arches_value in re.split(',', arches_string):
-                    arches.append(arches_value.strip())
-
+                arches.extend(
+                    arches_value.strip()
+                    for arches_value in re.split(',', arches_string)
+                )
     return set(arches)
 
 class TermuxPackage(object):
@@ -88,7 +89,7 @@ class TermuxPackage(object):
         # search package build.sh
         build_sh_path = os.path.join(self.dir, 'build.sh')
         if not os.path.isfile(build_sh_path):
-            raise Exception("build.sh not found for package '" + self.name + "'")
+            raise Exception(f"build.sh not found for package '{self.name}'")
 
         self.deps = parse_build_file_dependencies(build_sh_path)
         self.antideps = parse_build_file_antidependencies(build_sh_path)
@@ -106,7 +107,7 @@ class TermuxPackage(object):
         for filename in os.listdir(self.dir):
             if not filename.endswith('.subpackage.sh'):
                 continue
-            subpkg = TermuxSubPackage(self.dir + '/' + filename, self)
+            subpkg = TermuxSubPackage(f'{self.dir}/{filename}', self)
 
             self.subpkgs.append(subpkg)
             self.deps.add(subpkg.name)
@@ -114,7 +115,9 @@ class TermuxPackage(object):
 
         self.deps -= self.antideps
 
-        subpkg = TermuxSubPackage(self.dir + '/' + self.name + '-static' + '.subpackage.sh', self, virtual=True)
+        subpkg = TermuxSubPackage(
+            f'{self.dir}/{self.name}-static.subpackage.sh', self, virtual=True
+        )
         self.subpkgs.append(subpkg)
 
         # Do not depend on itself
@@ -126,7 +129,7 @@ class TermuxPackage(object):
         self.needed_by = set()  # Populated outside constructor, reverse of deps.
 
     def __repr__(self):
-        return "<{} '{}'>".format(self.__class__.__name__, self.name)
+        return f"<{self.__class__.__name__} '{self.name}'>"
 
     def recursive_dependencies(self, pkgs_map):
         "All the dependencies of the package, both direct and indirect."
@@ -145,7 +148,7 @@ class TermuxSubPackage:
 
         self.name = os.path.basename(subpackage_file_path).split('.subpackage.sh')[0]
         self.parent = parent
-        self.deps = set([parent.name])
+        self.deps = {parent.name}
         if not virtual:
             self.deps |= parse_build_file_dependencies(subpackage_file_path)
         self.dir = parent.dir
@@ -153,7 +156,7 @@ class TermuxSubPackage:
         self.needed_by = set()  # Populated outside constructor, reverse of deps.
 
     def __repr__(self):
-        return "<{} '{}' parent='{}'>".format(self.__class__.__name__, self.name, self.parent)
+        return f"<{self.__class__.__name__} '{self.name}' parent='{self.parent}'>"
 
     def recursive_dependencies(self, pkgs_map):
         """All the dependencies of the subpackage, both direct and indirect.
@@ -178,26 +181,26 @@ def read_packages_from_directories(directories, fast_build_mode, full_buildmode)
         # Ignore directories and get all folders from repo.json file
         with open ('repo.json') as f:
             data = json.load(f)
-        directories = [d for d in data.keys()]
+        directories = list(data.keys())
 
     for package_dir in directories:
         for pkgdir_name in sorted(os.listdir(package_dir)):
-            dir_path = package_dir + '/' + pkgdir_name
-            if os.path.isfile(dir_path + '/build.sh'):
-                new_package = TermuxPackage(package_dir + '/' + pkgdir_name, fast_build_mode)
+            dir_path = f'{package_dir}/{pkgdir_name}'
+            if os.path.isfile(f'{dir_path}/build.sh'):
+                new_package = TermuxPackage(f'{package_dir}/{pkgdir_name}', fast_build_mode)
 
                 if termux_arch in new_package.excluded_arches:
                     continue
 
                 if new_package.name in pkgs_map:
-                    die('Duplicated package: ' + new_package.name)
+                    die(f'Duplicated package: {new_package.name}')
                 else:
                     pkgs_map[new_package.name] = new_package
                 all_packages.append(new_package)
 
                 for subpkg in new_package.subpkgs:
                     if subpkg.name in pkgs_map:
-                        die('Duplicated package: ' + subpkg.name)
+                        die(f'Duplicated package: {subpkg.name}')
                     elif fast_build_mode:
                         pkgs_map[subpkg.name] = subpkg
                     else:
@@ -207,9 +210,9 @@ def read_packages_from_directories(directories, fast_build_mode, full_buildmode)
     for pkg in all_packages:
         for dependency_name in pkg.deps:
             if dependency_name not in pkgs_map:
-                die('Package %s depends on non-existing package "%s"' % (pkg.name, dependency_name))
-            dep_pkg = pkgs_map[dependency_name]
+                die(f'Package {pkg.name} depends on non-existing package "{dependency_name}"')
             if fast_build_mode or not isinstance(pkg, TermuxSubPackage):
+                dep_pkg = pkgs_map[dependency_name]
                 dep_pkg.needed_by.add(pkg)
     return pkgs_map
 
@@ -294,25 +297,24 @@ def main():
     package = args.package
     packages_directories = args.package_dirs
 
-    if not package:
-        full_buildorder = True
-    else:
-        full_buildorder = False
-
+    full_buildorder = not package
     if fast_build_mode and full_buildorder:
         die('-i mode does not work when building all packages')
 
     if not full_buildorder:
         for path in packages_directories:
             if not os.path.isdir(path):
-                die('Not a directory: ' + path)
+                die(f'Not a directory: {path}')
 
     if package:
         if package[-1] == "/":
             package = package[:-1]
         if not os.path.isdir(package):
-            die('Not a directory: ' + package)
-        if not os.path.relpath(os.path.dirname(package), '.') in packages_directories:
+            die(f'Not a directory: {package}')
+        if (
+            os.path.relpath(os.path.dirname(package), '.')
+            not in packages_directories
+        ):
             packages_directories.insert(0, os.path.dirname(package))
     pkgs_map = read_packages_from_directories(packages_directories, fast_build_mode, full_buildorder)
 
